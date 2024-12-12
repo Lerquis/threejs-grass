@@ -1,17 +1,23 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import grassShader from './shaders/grass.js';
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+// import grassShader from "./shaders/grass.js";
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(
+  50,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+);
 
 // Parameters
-const PLANE_SIZE = 30;
-const BLADE_COUNT = 100000;
-const BLADE_WIDTH = 0.1;
-const BLADE_HEIGHT = 0.8;
-const BLADE_HEIGHT_VARIATION = 0.6;
+const PLANE_SIZE = 10;
+const BLADE_COUNT = 10000;
+const BLADE_WIDTH = 0.5;
+const BLADE_HEIGHT = 0.1;
+const BLADE_HEIGHT_VARIATION = 0.06;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.shadowMap.enabled = true;
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
@@ -31,26 +37,78 @@ camera.lookAt(controls.target);
 camera.setFocalLength(15);
 
 // Grass Texture
-const grassTexture = new THREE.TextureLoader().load('grass.jpg');
-const cloudTexture = new THREE.TextureLoader().load('cloud.jpg');
+const grassTexture = new THREE.TextureLoader().load("grass.jpg");
+const cloudTexture = new THREE.TextureLoader().load("cloud.jpg");
 cloudTexture.wrapS = cloudTexture.wrapT = THREE.RepeatWrapping;
 
 // Time Uniform
 const startTime = Date.now();
-const timeUniform = { type: 'f', value: 0.0 };
+const timeUniform = { type: "f", value: 0.0 };
 
 // Grass Shader
 const grassUniforms = {
   textures: { value: [grassTexture, cloudTexture] },
-  iTime: timeUniform
+  iTime: timeUniform,
 };
 
 const grassMaterial = new THREE.ShaderMaterial({
   uniforms: grassUniforms,
-  vertexShader: grassShader.vert,
-  fragmentShader: grassShader.frag,
+  vertexShader: `
+  varying vec2 vUv;
+varying vec2 cloudUV;
+
+varying vec3 vColor;
+uniform float iTime;
+
+void main() {
+  vUv = uv;
+  cloudUV = uv;
+  vColor = color;
+  vec3 cpos = position;
+
+  float waveSize = 10.0f;
+  float tipDistance = 0.3f;
+  float centerDistance = 0.1f;
+
+  if (color.x > 0.6f) {
+    cpos.x += sin((iTime / 3000.) + (uv.x * waveSize)) * tipDistance;
+  }else if (color.x > 0.0f) {
+    cpos.x += sin((iTime / 3000.) + (uv.x * waveSize)) * centerDistance;
+  }
+
+  float diff = position.x - cpos.x;
+  cloudUV.x += iTime / 20000.;
+  cloudUV.y += iTime / 10000.;
+
+  vec4 worldPosition = vec4(cpos, 1.);
+  vec4 mvPosition = projectionMatrix * modelViewMatrix * vec4(cpos, 1.0);
+  gl_Position = mvPosition;
+}
+
+  
+  `,
+  fragmentShader: `
+  uniform sampler2D texture1;
+uniform sampler2D textures[4];
+
+varying vec2 vUv;
+varying vec2 cloudUV;
+varying vec3 vColor;
+
+void main() {
+  float contrast = 1.5;
+  float brightness = 0.1;
+  vec3 color = texture2D(textures[0], vUv).rgb * contrast;
+  color = color + vec3(brightness, brightness, brightness);
+  color = mix(color, texture2D(textures[1], cloudUV).rgb, 0.4);
+  gl_FragColor.rgb = color;
+  gl_FragColor.a = 1.;
+}
+
+  
+  `,
   vertexColors: true,
-  side: THREE.DoubleSide
+  side: THREE.DoubleSide,
 });
 
 generateField();
@@ -65,17 +123,17 @@ const animate = function () {
 
 animate();
 
-window.addEventListener('resize', () => {
+window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-function convertRange (val, oldMin, oldMax, newMin, newMax) {
-  return (((val - oldMin) * (newMax - newMin)) / (oldMax - oldMin)) + newMin;
+function convertRange(val, oldMin, oldMax, newMin, newMax) {
+  return ((val - oldMin) * (newMax - newMin)) / (oldMax - oldMin) + newMin;
 }
 
-function generateField () {
+function generateField() {
   const positions = [];
   const uvs = [];
   const indices = [];
@@ -83,7 +141,7 @@ function generateField () {
 
   for (let i = 0; i < BLADE_COUNT; i++) {
     const VERTEX_COUNT = 5;
-    const surfaceMin = PLANE_SIZE / 2 * -1;
+    const surfaceMin = (PLANE_SIZE / 2) * -1;
     const surfaceMax = PLANE_SIZE / 2;
     const radius = PLANE_SIZE / 2;
 
@@ -94,45 +152,111 @@ function generateField () {
 
     const pos = new THREE.Vector3(x, 0, y);
 
-    const uv = [convertRange(pos.x, surfaceMin, surfaceMax, 0, 1), convertRange(pos.z, surfaceMin, surfaceMax, 0, 1)];
+    const uv = [
+      convertRange(pos.x, surfaceMin, surfaceMax, 0, 1),
+      convertRange(pos.z, surfaceMin, surfaceMax, 0, 1),
+    ];
 
     const blade = generateBlade(pos, i * VERTEX_COUNT, uv);
-    blade.verts.forEach(vert => {
+    blade.verts.forEach((vert) => {
       positions.push(...vert.pos);
       uvs.push(...vert.uv);
       colors.push(...vert.color);
     });
-    blade.indices.forEach(indice => indices.push(indice));
+    blade.indices.forEach((indice) => indices.push(indice));
   }
 
   const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-  geom.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
-  geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
+  geom.setAttribute(
+    "position",
+    new THREE.BufferAttribute(new Float32Array(positions), 3)
+  );
+  geom.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(uvs), 2));
+  geom.setAttribute(
+    "color",
+    new THREE.BufferAttribute(new Float32Array(colors), 3)
+  );
   geom.setIndex(indices);
   geom.computeVertexNormals();
   geom.computeFaceNormals();
 
   const mesh = new THREE.Mesh(geom, grassMaterial);
+  mesh.receiveShadow = true;
   scene.add(mesh);
+  const geometryTest = new THREE.BoxGeometry(10, 10, 0.05);
+  const materialTest = new THREE.MeshStandardMaterial();
+  const meshTest = new THREE.Mesh(geometryTest, materialTest);
+  meshTest.rotation.set(Math.PI * -0.5, 0, 0);
+  meshTest.position.y = 2;
+  meshTest.castShadow = true;
+  meshTest.receiveShadow = true;
+  scene.add(meshTest);
+
+  const geometryTest2 = new THREE.BoxGeometry(10, 10, 0.05);
+  const materialTest2 = new THREE.MeshStandardMaterial();
+  const meshTest2 = new THREE.Mesh(geometryTest2, materialTest2);
+  meshTest2.rotation.set(Math.PI * -0.5, 0, 0);
+  meshTest2.position.y = 2.5;
+  meshTest2.castShadow = true;
+  meshTest2.receiveShadow = true;
+
+  scene.add(meshTest2);
+
+  const geometryTest3 = new THREE.BoxGeometry(10, 10, 0.05);
+  const materialTest3 = new THREE.MeshStandardMaterial();
+  const meshTest3 = new THREE.Mesh(geometryTest3, materialTest3);
+  meshTest3.rotation.set(Math.PI * -0.5, 0, 0);
+  meshTest3.position.y = -1;
+  meshTest3.castShadow = true;
+  meshTest3.receiveShadow = true;
+
+  scene.add(meshTest3);
+
+  const light = new THREE.PointLight("#f00", 0.5);
+
+  light.position.set(0, 3.5, 0);
+  light.castShadow = true;
+
+  scene.add(light);
+
+  scene.add(new THREE.CameraHelper(light.shadow.camera));
 }
 
-function generateBlade (center, vArrOffset, uv) {
+function generateBlade(center, vArrOffset, uv) {
   const MID_WIDTH = BLADE_WIDTH * 0.5;
   const TIP_OFFSET = 0.1;
-  const height = BLADE_HEIGHT + (Math.random() * BLADE_HEIGHT_VARIATION);
+  const height = BLADE_HEIGHT + Math.random() * BLADE_HEIGHT_VARIATION;
 
   const yaw = Math.random() * Math.PI * 2;
   const yawUnitVec = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
   const tipBend = Math.random() * Math.PI * 2;
-  const tipBendUnitVec = new THREE.Vector3(Math.sin(tipBend), 0, -Math.cos(tipBend));
+  const tipBendUnitVec = new THREE.Vector3(
+    Math.sin(tipBend),
+    0,
+    -Math.cos(tipBend)
+  );
 
   // Find the Bottom Left, Bottom Right, Top Left, Top right, Top Center vertex positions
-  const bl = new THREE.Vector3().addVectors(center, new THREE.Vector3().copy(yawUnitVec).multiplyScalar((BLADE_WIDTH / 2) * 1));
-  const br = new THREE.Vector3().addVectors(center, new THREE.Vector3().copy(yawUnitVec).multiplyScalar((BLADE_WIDTH / 2) * -1));
-  const tl = new THREE.Vector3().addVectors(center, new THREE.Vector3().copy(yawUnitVec).multiplyScalar((MID_WIDTH / 2) * 1));
-  const tr = new THREE.Vector3().addVectors(center, new THREE.Vector3().copy(yawUnitVec).multiplyScalar((MID_WIDTH / 2) * -1));
-  const tc = new THREE.Vector3().addVectors(center, new THREE.Vector3().copy(tipBendUnitVec).multiplyScalar(TIP_OFFSET));
+  const bl = new THREE.Vector3().addVectors(
+    center,
+    new THREE.Vector3().copy(yawUnitVec).multiplyScalar((BLADE_WIDTH / 2) * 1)
+  );
+  const br = new THREE.Vector3().addVectors(
+    center,
+    new THREE.Vector3().copy(yawUnitVec).multiplyScalar((BLADE_WIDTH / 2) * -1)
+  );
+  const tl = new THREE.Vector3().addVectors(
+    center,
+    new THREE.Vector3().copy(yawUnitVec).multiplyScalar((MID_WIDTH / 2) * 1)
+  );
+  const tr = new THREE.Vector3().addVectors(
+    center,
+    new THREE.Vector3().copy(yawUnitVec).multiplyScalar((MID_WIDTH / 2) * -1)
+  );
+  const tc = new THREE.Vector3().addVectors(
+    center,
+    new THREE.Vector3().copy(tipBendUnitVec).multiplyScalar(TIP_OFFSET)
+  );
 
   tl.y += height / 2;
   tr.y += height / 2;
@@ -148,7 +272,7 @@ function generateBlade (center, vArrOffset, uv) {
     { pos: br.toArray(), uv: uv, color: black },
     { pos: tr.toArray(), uv: uv, color: gray },
     { pos: tl.toArray(), uv: uv, color: gray },
-    { pos: tc.toArray(), uv: uv, color: white }
+    { pos: tc.toArray(), uv: uv, color: white },
   ];
 
   const indices = [
@@ -160,7 +284,7 @@ function generateBlade (center, vArrOffset, uv) {
     vArrOffset + 3,
     vArrOffset + 3,
     vArrOffset,
-    vArrOffset + 2
+    vArrOffset + 2,
   ];
 
   return { verts, indices };

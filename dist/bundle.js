@@ -24808,7 +24808,7 @@
 			state.scissor( _currentScissor.copy( _scissor ).multiplyScalar( _pixelRatio ).floor() );
 			state.viewport( _currentViewport.copy( _viewport ).multiplyScalar( _pixelRatio ).floor() );
 
-			info = new WebGLInfo( _gl );
+			info = new WebGLInfo();
 			properties = new WebGLProperties();
 			textures = new WebGLTextures( _gl, extensions, state, properties, capabilities, utils, info );
 			cubemaps = new WebGLCubeMaps( _this );
@@ -42442,396 +42442,6 @@
 	new Vector3();
 	new Vector3();
 
-	class Audio extends Object3D {
-
-		constructor( listener ) {
-
-			super();
-
-			this.type = 'Audio';
-
-			this.listener = listener;
-			this.context = listener.context;
-
-			this.gain = this.context.createGain();
-			this.gain.connect( listener.getInput() );
-
-			this.autoplay = false;
-
-			this.buffer = null;
-			this.detune = 0;
-			this.loop = false;
-			this.loopStart = 0;
-			this.loopEnd = 0;
-			this.offset = 0;
-			this.duration = undefined;
-			this.playbackRate = 1;
-			this.isPlaying = false;
-			this.hasPlaybackControl = true;
-			this.source = null;
-			this.sourceType = 'empty';
-
-			this._startedAt = 0;
-			this._progress = 0;
-			this._connected = false;
-
-			this.filters = [];
-
-		}
-
-		getOutput() {
-
-			return this.gain;
-
-		}
-
-		setNodeSource( audioNode ) {
-
-			this.hasPlaybackControl = false;
-			this.sourceType = 'audioNode';
-			this.source = audioNode;
-			this.connect();
-
-			return this;
-
-		}
-
-		setMediaElementSource( mediaElement ) {
-
-			this.hasPlaybackControl = false;
-			this.sourceType = 'mediaNode';
-			this.source = this.context.createMediaElementSource( mediaElement );
-			this.connect();
-
-			return this;
-
-		}
-
-		setMediaStreamSource( mediaStream ) {
-
-			this.hasPlaybackControl = false;
-			this.sourceType = 'mediaStreamNode';
-			this.source = this.context.createMediaStreamSource( mediaStream );
-			this.connect();
-
-			return this;
-
-		}
-
-		setBuffer( audioBuffer ) {
-
-			this.buffer = audioBuffer;
-			this.sourceType = 'buffer';
-
-			if ( this.autoplay ) this.play();
-
-			return this;
-
-		}
-
-		play( delay ) {
-
-			if ( delay === undefined ) delay = 0;
-
-			if ( this.isPlaying === true ) {
-
-				console.warn( 'THREE.Audio: Audio is already playing.' );
-				return;
-
-			}
-
-			if ( this.hasPlaybackControl === false ) {
-
-				console.warn( 'THREE.Audio: this Audio has no playback control.' );
-				return;
-
-			}
-
-			this._startedAt = this.context.currentTime + delay;
-
-			const source = this.context.createBufferSource();
-			source.buffer = this.buffer;
-			source.loop = this.loop;
-			source.loopStart = this.loopStart;
-			source.loopEnd = this.loopEnd;
-			source.onended = this.onEnded.bind( this );
-			source.start( this._startedAt, this._progress + this.offset, this.duration );
-
-			this.isPlaying = true;
-
-			this.source = source;
-
-			this.setDetune( this.detune );
-			this.setPlaybackRate( this.playbackRate );
-
-			return this.connect();
-
-		}
-
-		pause() {
-
-			if ( this.hasPlaybackControl === false ) {
-
-				console.warn( 'THREE.Audio: this Audio has no playback control.' );
-				return;
-
-			}
-
-			if ( this.isPlaying === true ) {
-
-				// update current progress
-
-				this._progress += Math.max( this.context.currentTime - this._startedAt, 0 ) * this.playbackRate;
-
-				if ( this.loop === true ) {
-
-					// ensure _progress does not exceed duration with looped audios
-
-					this._progress = this._progress % ( this.duration || this.buffer.duration );
-
-				}
-
-				this.source.stop();
-				this.source.onended = null;
-
-				this.isPlaying = false;
-
-			}
-
-			return this;
-
-		}
-
-		stop() {
-
-			if ( this.hasPlaybackControl === false ) {
-
-				console.warn( 'THREE.Audio: this Audio has no playback control.' );
-				return;
-
-			}
-
-			this._progress = 0;
-
-			this.source.stop();
-			this.source.onended = null;
-			this.isPlaying = false;
-
-			return this;
-
-		}
-
-		connect() {
-
-			if ( this.filters.length > 0 ) {
-
-				this.source.connect( this.filters[ 0 ] );
-
-				for ( let i = 1, l = this.filters.length; i < l; i ++ ) {
-
-					this.filters[ i - 1 ].connect( this.filters[ i ] );
-
-				}
-
-				this.filters[ this.filters.length - 1 ].connect( this.getOutput() );
-
-			} else {
-
-				this.source.connect( this.getOutput() );
-
-			}
-
-			this._connected = true;
-
-			return this;
-
-		}
-
-		disconnect() {
-
-			if ( this.filters.length > 0 ) {
-
-				this.source.disconnect( this.filters[ 0 ] );
-
-				for ( let i = 1, l = this.filters.length; i < l; i ++ ) {
-
-					this.filters[ i - 1 ].disconnect( this.filters[ i ] );
-
-				}
-
-				this.filters[ this.filters.length - 1 ].disconnect( this.getOutput() );
-
-			} else {
-
-				this.source.disconnect( this.getOutput() );
-
-			}
-
-			this._connected = false;
-
-			return this;
-
-		}
-
-		getFilters() {
-
-			return this.filters;
-
-		}
-
-		setFilters( value ) {
-
-			if ( ! value ) value = [];
-
-			if ( this._connected === true ) {
-
-				this.disconnect();
-				this.filters = value;
-				this.connect();
-
-			} else {
-
-				this.filters = value;
-
-			}
-
-			return this;
-
-		}
-
-		setDetune( value ) {
-
-			this.detune = value;
-
-			if ( this.source.detune === undefined ) return; // only set detune when available
-
-			if ( this.isPlaying === true ) {
-
-				this.source.detune.setTargetAtTime( this.detune, this.context.currentTime, 0.01 );
-
-			}
-
-			return this;
-
-		}
-
-		getDetune() {
-
-			return this.detune;
-
-		}
-
-		getFilter() {
-
-			return this.getFilters()[ 0 ];
-
-		}
-
-		setFilter( filter ) {
-
-			return this.setFilters( filter ? [ filter ] : [] );
-
-		}
-
-		setPlaybackRate( value ) {
-
-			if ( this.hasPlaybackControl === false ) {
-
-				console.warn( 'THREE.Audio: this Audio has no playback control.' );
-				return;
-
-			}
-
-			this.playbackRate = value;
-
-			if ( this.isPlaying === true ) {
-
-				this.source.playbackRate.setTargetAtTime( this.playbackRate, this.context.currentTime, 0.01 );
-
-			}
-
-			return this;
-
-		}
-
-		getPlaybackRate() {
-
-			return this.playbackRate;
-
-		}
-
-		onEnded() {
-
-			this.isPlaying = false;
-
-		}
-
-		getLoop() {
-
-			if ( this.hasPlaybackControl === false ) {
-
-				console.warn( 'THREE.Audio: this Audio has no playback control.' );
-				return false;
-
-			}
-
-			return this.loop;
-
-		}
-
-		setLoop( value ) {
-
-			if ( this.hasPlaybackControl === false ) {
-
-				console.warn( 'THREE.Audio: this Audio has no playback control.' );
-				return;
-
-			}
-
-			this.loop = value;
-
-			if ( this.isPlaying === true ) {
-
-				this.source.loop = this.loop;
-
-			}
-
-			return this;
-
-		}
-
-		setLoopStart( value ) {
-
-			this.loopStart = value;
-
-			return this;
-
-		}
-
-		setLoopEnd( value ) {
-
-			this.loopEnd = value;
-
-			return this;
-
-		}
-
-		getVolume() {
-
-			return this.gain.gain.value;
-
-		}
-
-		setVolume( value ) {
-
-			this.gain.gain.setTargetAtTime( value, this.context.currentTime, 0.01 );
-
-			return this;
-
-		}
-
-	}
-
 	new Vector3();
 	new Quaternion();
 	new Vector3();
@@ -45666,29 +45276,6 @@
 
 	} );
 
-	class Uniform {
-
-		constructor( value ) {
-
-			if ( typeof value === 'string' ) {
-
-				console.warn( 'THREE.Uniform: Type parameter is no longer needed.' );
-				value = arguments[ 1 ];
-
-			}
-
-			this.value = value;
-
-		}
-
-		clone() {
-
-			return new Uniform( this.value.clone === undefined ? this.value : this.value.clone() );
-
-		}
-
-	}
-
 	function InstancedInterleavedBuffer( array, stride, meshPerAttribute ) {
 
 		InterleavedBuffer.call( this, array, stride );
@@ -46281,20 +45868,360 @@
 
 	new Vector3();
 
-	new Vector3();
-	new Matrix4();
-	new Matrix4();
+	const _vector$9 = new Vector3();
+	const _boneMatrix = new Matrix4();
+	const _matrixWorldInv = new Matrix4();
+
+
+	class SkeletonHelper extends LineSegments {
+
+		constructor( object ) {
+
+			const bones = getBoneList( object );
+
+			const geometry = new BufferGeometry();
+
+			const vertices = [];
+			const colors = [];
+
+			const color1 = new Color( 0, 0, 1 );
+			const color2 = new Color( 0, 1, 0 );
+
+			for ( let i = 0; i < bones.length; i ++ ) {
+
+				const bone = bones[ i ];
+
+				if ( bone.parent && bone.parent.isBone ) {
+
+					vertices.push( 0, 0, 0 );
+					vertices.push( 0, 0, 0 );
+					colors.push( color1.r, color1.g, color1.b );
+					colors.push( color2.r, color2.g, color2.b );
+
+				}
+
+			}
+
+			geometry.setAttribute( 'position', new Float32BufferAttribute( vertices, 3 ) );
+			geometry.setAttribute( 'color', new Float32BufferAttribute( colors, 3 ) );
+
+			const material = new LineBasicMaterial( { vertexColors: true, depthTest: false, depthWrite: false, toneMapped: false, transparent: true } );
+
+			super( geometry, material );
+
+			this.type = 'SkeletonHelper';
+			this.isSkeletonHelper = true;
+
+			this.root = object;
+			this.bones = bones;
+
+			this.matrix = object.matrixWorld;
+			this.matrixAutoUpdate = false;
+
+		}
+
+		updateMatrixWorld( force ) {
+
+			const bones = this.bones;
+
+			const geometry = this.geometry;
+			const position = geometry.getAttribute( 'position' );
+
+			_matrixWorldInv.getInverse( this.root.matrixWorld );
+
+			for ( let i = 0, j = 0; i < bones.length; i ++ ) {
+
+				const bone = bones[ i ];
+
+				if ( bone.parent && bone.parent.isBone ) {
+
+					_boneMatrix.multiplyMatrices( _matrixWorldInv, bone.matrixWorld );
+					_vector$9.setFromMatrixPosition( _boneMatrix );
+					position.setXYZ( j, _vector$9.x, _vector$9.y, _vector$9.z );
+
+					_boneMatrix.multiplyMatrices( _matrixWorldInv, bone.parent.matrixWorld );
+					_vector$9.setFromMatrixPosition( _boneMatrix );
+					position.setXYZ( j + 1, _vector$9.x, _vector$9.y, _vector$9.z );
+
+					j += 2;
+
+				}
+
+			}
+
+			geometry.getAttribute( 'position' ).needsUpdate = true;
+
+			super.updateMatrixWorld( force );
+
+		}
+
+	}
+
+
+	function getBoneList( object ) {
+
+		const boneList = [];
+
+		if ( object && object.isBone ) {
+
+			boneList.push( object );
+
+		}
+
+		for ( let i = 0; i < object.children.length; i ++ ) {
+
+			boneList.push.apply( boneList, getBoneList( object.children[ i ] ) );
+
+		}
+
+		return boneList;
+
+	}
 
 	new Vector3();
 	new Color();
 	new Color();
 
+	class GridHelper extends LineSegments {
+
+		constructor( size, divisions, color1, color2 ) {
+
+			size = size || 10;
+			divisions = divisions || 10;
+			color1 = new Color( color1 !== undefined ? color1 : 0x444444 );
+			color2 = new Color( color2 !== undefined ? color2 : 0x888888 );
+
+			const center = divisions / 2;
+			const step = size / divisions;
+			const halfSize = size / 2;
+
+			const vertices = [], colors = [];
+
+			for ( let i = 0, j = 0, k = - halfSize; i <= divisions; i ++, k += step ) {
+
+				vertices.push( - halfSize, 0, k, halfSize, 0, k );
+				vertices.push( k, 0, - halfSize, k, 0, halfSize );
+
+				const color = i === center ? color1 : color2;
+
+				color.toArray( colors, j ); j += 3;
+				color.toArray( colors, j ); j += 3;
+				color.toArray( colors, j ); j += 3;
+				color.toArray( colors, j ); j += 3;
+
+			}
+
+			const geometry = new BufferGeometry();
+			geometry.setAttribute( 'position', new Float32BufferAttribute( vertices, 3 ) );
+			geometry.setAttribute( 'color', new Float32BufferAttribute( colors, 3 ) );
+
+			const material = new LineBasicMaterial( { vertexColors: true, toneMapped: false } );
+
+			super( geometry, material );
+
+			this.type = 'GridHelper';
+
+		}
+
+	}
+
 	new Vector3();
 	new Vector3();
 	new Vector3();
 
-	new Vector3();
-	new Camera();
+	const _vector$b = new Vector3();
+	const _camera = new Camera();
+
+	/**
+	 *	- shows frustum, line of sight and up of the camera
+	 *	- suitable for fast updates
+	 * 	- based on frustum visualization in lightgl.js shadowmap example
+	 *		http://evanw.github.com/lightgl.js/tests/shadowmap.html
+	 */
+
+	class CameraHelper extends LineSegments {
+
+		constructor( camera ) {
+
+			const geometry = new BufferGeometry();
+			const material = new LineBasicMaterial( { color: 0xffffff, vertexColors: true, toneMapped: false } );
+
+			const vertices = [];
+			const colors = [];
+
+			const pointMap = {};
+
+			// colors
+
+			const colorFrustum = new Color( 0xffaa00 );
+			const colorCone = new Color( 0xff0000 );
+			const colorUp = new Color( 0x00aaff );
+			const colorTarget = new Color( 0xffffff );
+			const colorCross = new Color( 0x333333 );
+
+			// near
+
+			addLine( 'n1', 'n2', colorFrustum );
+			addLine( 'n2', 'n4', colorFrustum );
+			addLine( 'n4', 'n3', colorFrustum );
+			addLine( 'n3', 'n1', colorFrustum );
+
+			// far
+
+			addLine( 'f1', 'f2', colorFrustum );
+			addLine( 'f2', 'f4', colorFrustum );
+			addLine( 'f4', 'f3', colorFrustum );
+			addLine( 'f3', 'f1', colorFrustum );
+
+			// sides
+
+			addLine( 'n1', 'f1', colorFrustum );
+			addLine( 'n2', 'f2', colorFrustum );
+			addLine( 'n3', 'f3', colorFrustum );
+			addLine( 'n4', 'f4', colorFrustum );
+
+			// cone
+
+			addLine( 'p', 'n1', colorCone );
+			addLine( 'p', 'n2', colorCone );
+			addLine( 'p', 'n3', colorCone );
+			addLine( 'p', 'n4', colorCone );
+
+			// up
+
+			addLine( 'u1', 'u2', colorUp );
+			addLine( 'u2', 'u3', colorUp );
+			addLine( 'u3', 'u1', colorUp );
+
+			// target
+
+			addLine( 'c', 't', colorTarget );
+			addLine( 'p', 'c', colorCross );
+
+			// cross
+
+			addLine( 'cn1', 'cn2', colorCross );
+			addLine( 'cn3', 'cn4', colorCross );
+
+			addLine( 'cf1', 'cf2', colorCross );
+			addLine( 'cf3', 'cf4', colorCross );
+
+			function addLine( a, b, color ) {
+
+				addPoint( a, color );
+				addPoint( b, color );
+
+			}
+
+			function addPoint( id, color ) {
+
+				vertices.push( 0, 0, 0 );
+				colors.push( color.r, color.g, color.b );
+
+				if ( pointMap[ id ] === undefined ) {
+
+					pointMap[ id ] = [];
+
+				}
+
+				pointMap[ id ].push( ( vertices.length / 3 ) - 1 );
+
+			}
+
+			geometry.setAttribute( 'position', new Float32BufferAttribute( vertices, 3 ) );
+			geometry.setAttribute( 'color', new Float32BufferAttribute( colors, 3 ) );
+
+			super( geometry, material );
+
+			this.type = 'CameraHelper';
+
+			this.camera = camera;
+			if ( this.camera.updateProjectionMatrix ) this.camera.updateProjectionMatrix();
+
+			this.matrix = camera.matrixWorld;
+			this.matrixAutoUpdate = false;
+
+			this.pointMap = pointMap;
+
+			this.update();
+
+		}
+
+		update() {
+
+			const geometry = this.geometry;
+			const pointMap = this.pointMap;
+
+			const w = 1, h = 1;
+
+			// we need just camera projection matrix inverse
+			// world matrix must be identity
+
+			_camera.projectionMatrixInverse.copy( this.camera.projectionMatrixInverse );
+
+			// center / target
+
+			setPoint( 'c', pointMap, geometry, _camera, 0, 0, - 1 );
+			setPoint( 't', pointMap, geometry, _camera, 0, 0, 1 );
+
+			// near
+
+			setPoint( 'n1', pointMap, geometry, _camera, - w, - h, - 1 );
+			setPoint( 'n2', pointMap, geometry, _camera, w, - h, - 1 );
+			setPoint( 'n3', pointMap, geometry, _camera, - w, h, - 1 );
+			setPoint( 'n4', pointMap, geometry, _camera, w, h, - 1 );
+
+			// far
+
+			setPoint( 'f1', pointMap, geometry, _camera, - w, - h, 1 );
+			setPoint( 'f2', pointMap, geometry, _camera, w, - h, 1 );
+			setPoint( 'f3', pointMap, geometry, _camera, - w, h, 1 );
+			setPoint( 'f4', pointMap, geometry, _camera, w, h, 1 );
+
+			// up
+
+			setPoint( 'u1', pointMap, geometry, _camera, w * 0.7, h * 1.1, - 1 );
+			setPoint( 'u2', pointMap, geometry, _camera, - w * 0.7, h * 1.1, - 1 );
+			setPoint( 'u3', pointMap, geometry, _camera, 0, h * 2, - 1 );
+
+			// cross
+
+			setPoint( 'cf1', pointMap, geometry, _camera, - w, 0, 1 );
+			setPoint( 'cf2', pointMap, geometry, _camera, w, 0, 1 );
+			setPoint( 'cf3', pointMap, geometry, _camera, 0, - h, 1 );
+			setPoint( 'cf4', pointMap, geometry, _camera, 0, h, 1 );
+
+			setPoint( 'cn1', pointMap, geometry, _camera, - w, 0, - 1 );
+			setPoint( 'cn2', pointMap, geometry, _camera, w, 0, - 1 );
+			setPoint( 'cn3', pointMap, geometry, _camera, 0, - h, - 1 );
+			setPoint( 'cn4', pointMap, geometry, _camera, 0, h, - 1 );
+
+			geometry.getAttribute( 'position' ).needsUpdate = true;
+
+		}
+
+	}
+
+
+	function setPoint( point, pointMap, geometry, camera, x, y, z ) {
+
+		_vector$b.set( x, y, z ).unproject( camera );
+
+		const points = pointMap[ point ];
+
+		if ( points !== undefined ) {
+
+			const position = geometry.getAttribute( 'position' );
+
+			for ( let i = 0, l = points.length; i < l; i ++ ) {
+
+				position.setXYZ( points[ i ], _vector$b.x, _vector$b.y, _vector$b.z );
+
+			}
+
+		}
+
+	}
 
 	new Box3();
 
@@ -46482,6 +46409,10 @@
 
 	} );
 
+	Object.create( CatmullRomCurve3.prototype );
+
+	Object.create( CatmullRomCurve3.prototype );
+
 	//
 
 	function Spline( points ) {
@@ -46514,6 +46445,18 @@
 		}
 
 	} );
+
+	GridHelper.prototype.setColors = function () {
+
+		console.error( 'THREE.GridHelper: setColors() has been deprecated, pass them in the constructor instead.' );
+
+	};
+
+	SkeletonHelper.prototype.update = function () {
+
+		console.error( 'THREE.SkeletonHelper: update() no longer needs to be called.' );
+
+	};
 
 	//
 
@@ -47549,28 +47492,6 @@
 
 	//
 
-	Object.defineProperties( Uniform.prototype, {
-
-		dynamic: {
-			set: function () {
-
-				console.warn( 'THREE.Uniform: .dynamic has been removed. Use object.onBeforeRender() instead.' );
-
-			}
-		},
-		onUpdate: {
-			value: function () {
-
-				console.warn( 'THREE.Uniform: .onUpdate() has been removed. Use object.onBeforeRender() instead.' );
-				return this;
-
-			}
-		}
-
-	} );
-
-	//
-
 	Object.defineProperties( Material.prototype, {
 
 		wrapAround: {
@@ -48129,35 +48050,6 @@
 
 				console.warn( 'THREE.WebGLRenderTarget: .generateMipmaps is now .texture.generateMipmaps.' );
 				this.texture.generateMipmaps = value;
-
-			}
-		}
-
-	} );
-
-	//
-
-	Object.defineProperties( Audio.prototype, {
-
-		load: {
-			value: function ( file ) {
-
-				console.warn( 'THREE.Audio: .load has been deprecated. Use THREE.AudioLoader instead.' );
-				const scope = this;
-				const audioLoader = new AudioLoader();
-				audioLoader.load( file, function ( buffer ) {
-
-					scope.setBuffer( buffer );
-
-				} );
-				return this;
-
-			}
-		},
-		startTime: {
-			set: function () {
-
-				console.warn( 'THREE.Audio: .startTime is now .play( delay ).' );
 
 			}
 		}
@@ -49426,23 +49318,24 @@
 	MapControls.prototype = Object.create( EventDispatcher.prototype );
 	MapControls.prototype.constructor = MapControls;
 
-	var vert = "varying vec2 vUv;\r\nvarying vec2 cloudUV;\r\n\r\nvarying vec3 vColor;\r\nuniform float iTime;\r\n\r\nvoid main() {\r\n  vUv = uv;\r\n  cloudUV = uv;\r\n  vColor = color;\r\n  vec3 cpos = position;\r\n\r\n  float waveSize = 10.0f;\r\n  float tipDistance = 0.3f;\r\n  float centerDistance = 0.1f;\r\n\r\n  if (color.x > 0.6f) {\r\n    cpos.x += sin((iTime / 500.) + (uv.x * waveSize)) * tipDistance;\r\n  }else if (color.x > 0.0f) {\r\n    cpos.x += sin((iTime / 500.) + (uv.x * waveSize)) * centerDistance;\r\n  }\r\n\r\n  float diff = position.x - cpos.x;\r\n  cloudUV.x += iTime / 20000.;\r\n  cloudUV.y += iTime / 10000.;\r\n\r\n  vec4 worldPosition = vec4(cpos, 1.);\r\n  vec4 mvPosition = projectionMatrix * modelViewMatrix * vec4(cpos, 1.0);\r\n  gl_Position = mvPosition;\r\n}\r\n";
-
-	var frag = "uniform sampler2D texture1;\r\nuniform sampler2D textures[4];\r\n\r\nvarying vec2 vUv;\r\nvarying vec2 cloudUV;\r\nvarying vec3 vColor;\r\n\r\nvoid main() {\r\n  float contrast = 1.5;\r\n  float brightness = 0.1;\r\n  vec3 color = texture2D(textures[0], vUv).rgb * contrast;\r\n  color = color + vec3(brightness, brightness, brightness);\r\n  color = mix(color, texture2D(textures[1], cloudUV).rgb, 0.4);\r\n  gl_FragColor.rgb = color;\r\n  gl_FragColor.a = 1.;\r\n}\r\n";
-
-	var grassShader = { frag, vert };
-
+	// import grassShader from "./shaders/grass.js";
 	const scene = new Scene();
-	const camera = new PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+	const camera = new PerspectiveCamera(
+	  50,
+	  window.innerWidth / window.innerHeight,
+	  0.1,
+	  1000
+	);
 
 	// Parameters
-	const PLANE_SIZE = 30;
-	const BLADE_COUNT = 100000;
-	const BLADE_WIDTH = 0.1;
-	const BLADE_HEIGHT = 0.8;
-	const BLADE_HEIGHT_VARIATION = 0.6;
+	const PLANE_SIZE = 10;
+	const BLADE_COUNT = 10000;
+	const BLADE_WIDTH = 0.5;
+	const BLADE_HEIGHT = 0.1;
+	const BLADE_HEIGHT_VARIATION = 0.06;
 
 	const renderer = new WebGLRenderer({ antialias: true, alpha: true });
+	renderer.shadowMap.enabled = true;
 	renderer.setSize(window.innerWidth, window.innerHeight);
 	document.body.appendChild(renderer.domElement);
 
@@ -49462,26 +49355,78 @@
 	camera.setFocalLength(15);
 
 	// Grass Texture
-	const grassTexture = new TextureLoader().load('grass.jpg');
-	const cloudTexture = new TextureLoader().load('cloud.jpg');
+	const grassTexture = new TextureLoader().load("grass.jpg");
+	const cloudTexture = new TextureLoader().load("cloud.jpg");
 	cloudTexture.wrapS = cloudTexture.wrapT = RepeatWrapping;
 
 	// Time Uniform
 	const startTime = Date.now();
-	const timeUniform = { type: 'f', value: 0.0 };
+	const timeUniform = { type: "f", value: 0.0 };
 
 	// Grass Shader
 	const grassUniforms = {
 	  textures: { value: [grassTexture, cloudTexture] },
-	  iTime: timeUniform
+	  iTime: timeUniform,
 	};
 
 	const grassMaterial = new ShaderMaterial({
 	  uniforms: grassUniforms,
-	  vertexShader: grassShader.vert,
-	  fragmentShader: grassShader.frag,
+	  vertexShader: `
+  varying vec2 vUv;
+varying vec2 cloudUV;
+
+varying vec3 vColor;
+uniform float iTime;
+
+void main() {
+  vUv = uv;
+  cloudUV = uv;
+  vColor = color;
+  vec3 cpos = position;
+
+  float waveSize = 10.0f;
+  float tipDistance = 0.3f;
+  float centerDistance = 0.1f;
+
+  if (color.x > 0.6f) {
+    cpos.x += sin((iTime / 3000.) + (uv.x * waveSize)) * tipDistance;
+  }else if (color.x > 0.0f) {
+    cpos.x += sin((iTime / 3000.) + (uv.x * waveSize)) * centerDistance;
+  }
+
+  float diff = position.x - cpos.x;
+  cloudUV.x += iTime / 20000.;
+  cloudUV.y += iTime / 10000.;
+
+  vec4 worldPosition = vec4(cpos, 1.);
+  vec4 mvPosition = projectionMatrix * modelViewMatrix * vec4(cpos, 1.0);
+  gl_Position = mvPosition;
+}
+
+  
+  `,
+	  fragmentShader: `
+  uniform sampler2D texture1;
+uniform sampler2D textures[4];
+
+varying vec2 vUv;
+varying vec2 cloudUV;
+varying vec3 vColor;
+
+void main() {
+  float contrast = 1.5;
+  float brightness = 0.1;
+  vec3 color = texture2D(textures[0], vUv).rgb * contrast;
+  color = color + vec3(brightness, brightness, brightness);
+  color = mix(color, texture2D(textures[1], cloudUV).rgb, 0.4);
+  gl_FragColor.rgb = color;
+  gl_FragColor.a = 1.;
+}
+
+  
+  `,
 	  vertexColors: true,
-	  side: DoubleSide
+	  side: DoubleSide,
 	});
 
 	generateField();
@@ -49496,17 +49441,17 @@
 
 	animate();
 
-	window.addEventListener('resize', () => {
+	window.addEventListener("resize", () => {
 	  camera.aspect = window.innerWidth / window.innerHeight;
 	  camera.updateProjectionMatrix();
 	  renderer.setSize(window.innerWidth, window.innerHeight);
 	});
 
-	function convertRange (val, oldMin, oldMax, newMin, newMax) {
-	  return (((val - oldMin) * (newMax - newMin)) / (oldMax - oldMin)) + newMin;
+	function convertRange(val, oldMin, oldMax, newMin, newMax) {
+	  return ((val - oldMin) * (newMax - newMin)) / (oldMax - oldMin) + newMin;
 	}
 
-	function generateField () {
+	function generateField() {
 	  const positions = [];
 	  const uvs = [];
 	  const indices = [];
@@ -49514,7 +49459,7 @@
 
 	  for (let i = 0; i < BLADE_COUNT; i++) {
 	    const VERTEX_COUNT = 5;
-	    const surfaceMin = PLANE_SIZE / 2 * -1;
+	    const surfaceMin = (PLANE_SIZE / 2) * -1;
 	    const surfaceMax = PLANE_SIZE / 2;
 	    const radius = PLANE_SIZE / 2;
 
@@ -49525,45 +49470,111 @@
 
 	    const pos = new Vector3(x, 0, y);
 
-	    const uv = [convertRange(pos.x, surfaceMin, surfaceMax, 0, 1), convertRange(pos.z, surfaceMin, surfaceMax, 0, 1)];
+	    const uv = [
+	      convertRange(pos.x, surfaceMin, surfaceMax, 0, 1),
+	      convertRange(pos.z, surfaceMin, surfaceMax, 0, 1),
+	    ];
 
 	    const blade = generateBlade(pos, i * VERTEX_COUNT, uv);
-	    blade.verts.forEach(vert => {
+	    blade.verts.forEach((vert) => {
 	      positions.push(...vert.pos);
 	      uvs.push(...vert.uv);
 	      colors.push(...vert.color);
 	    });
-	    blade.indices.forEach(indice => indices.push(indice));
+	    blade.indices.forEach((indice) => indices.push(indice));
 	  }
 
 	  const geom = new BufferGeometry();
-	  geom.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
-	  geom.setAttribute('uv', new BufferAttribute(new Float32Array(uvs), 2));
-	  geom.setAttribute('color', new BufferAttribute(new Float32Array(colors), 3));
+	  geom.setAttribute(
+	    "position",
+	    new BufferAttribute(new Float32Array(positions), 3)
+	  );
+	  geom.setAttribute("uv", new BufferAttribute(new Float32Array(uvs), 2));
+	  geom.setAttribute(
+	    "color",
+	    new BufferAttribute(new Float32Array(colors), 3)
+	  );
 	  geom.setIndex(indices);
 	  geom.computeVertexNormals();
 	  geom.computeFaceNormals();
 
 	  const mesh = new Mesh(geom, grassMaterial);
+	  mesh.receiveShadow = true;
 	  scene.add(mesh);
+	  const geometryTest = new BoxGeometry(10, 10, 0.05);
+	  const materialTest = new MeshStandardMaterial();
+	  const meshTest = new Mesh(geometryTest, materialTest);
+	  meshTest.rotation.set(Math.PI * -0.5, 0, 0);
+	  meshTest.position.y = 2;
+	  meshTest.castShadow = true;
+	  meshTest.receiveShadow = true;
+	  scene.add(meshTest);
+
+	  const geometryTest2 = new BoxGeometry(10, 10, 0.05);
+	  const materialTest2 = new MeshStandardMaterial();
+	  const meshTest2 = new Mesh(geometryTest2, materialTest2);
+	  meshTest2.rotation.set(Math.PI * -0.5, 0, 0);
+	  meshTest2.position.y = 2.5;
+	  meshTest2.castShadow = true;
+	  meshTest2.receiveShadow = true;
+
+	  scene.add(meshTest2);
+
+	  const geometryTest3 = new BoxGeometry(10, 10, 0.05);
+	  const materialTest3 = new MeshStandardMaterial();
+	  const meshTest3 = new Mesh(geometryTest3, materialTest3);
+	  meshTest3.rotation.set(Math.PI * -0.5, 0, 0);
+	  meshTest3.position.y = -1;
+	  meshTest3.castShadow = true;
+	  meshTest3.receiveShadow = true;
+
+	  scene.add(meshTest3);
+
+	  const light = new PointLight("#f00", 0.5);
+
+	  light.position.set(0, 3.5, 0);
+	  light.castShadow = true;
+
+	  scene.add(light);
+
+	  scene.add(new CameraHelper(light.shadow.camera));
 	}
 
-	function generateBlade (center, vArrOffset, uv) {
+	function generateBlade(center, vArrOffset, uv) {
 	  const MID_WIDTH = BLADE_WIDTH * 0.5;
 	  const TIP_OFFSET = 0.1;
-	  const height = BLADE_HEIGHT + (Math.random() * BLADE_HEIGHT_VARIATION);
+	  const height = BLADE_HEIGHT + Math.random() * BLADE_HEIGHT_VARIATION;
 
 	  const yaw = Math.random() * Math.PI * 2;
 	  const yawUnitVec = new Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
 	  const tipBend = Math.random() * Math.PI * 2;
-	  const tipBendUnitVec = new Vector3(Math.sin(tipBend), 0, -Math.cos(tipBend));
+	  const tipBendUnitVec = new Vector3(
+	    Math.sin(tipBend),
+	    0,
+	    -Math.cos(tipBend)
+	  );
 
 	  // Find the Bottom Left, Bottom Right, Top Left, Top right, Top Center vertex positions
-	  const bl = new Vector3().addVectors(center, new Vector3().copy(yawUnitVec).multiplyScalar((BLADE_WIDTH / 2) * 1));
-	  const br = new Vector3().addVectors(center, new Vector3().copy(yawUnitVec).multiplyScalar((BLADE_WIDTH / 2) * -1));
-	  const tl = new Vector3().addVectors(center, new Vector3().copy(yawUnitVec).multiplyScalar((MID_WIDTH / 2) * 1));
-	  const tr = new Vector3().addVectors(center, new Vector3().copy(yawUnitVec).multiplyScalar((MID_WIDTH / 2) * -1));
-	  const tc = new Vector3().addVectors(center, new Vector3().copy(tipBendUnitVec).multiplyScalar(TIP_OFFSET));
+	  const bl = new Vector3().addVectors(
+	    center,
+	    new Vector3().copy(yawUnitVec).multiplyScalar((BLADE_WIDTH / 2) * 1)
+	  );
+	  const br = new Vector3().addVectors(
+	    center,
+	    new Vector3().copy(yawUnitVec).multiplyScalar((BLADE_WIDTH / 2) * -1)
+	  );
+	  const tl = new Vector3().addVectors(
+	    center,
+	    new Vector3().copy(yawUnitVec).multiplyScalar((MID_WIDTH / 2) * 1)
+	  );
+	  const tr = new Vector3().addVectors(
+	    center,
+	    new Vector3().copy(yawUnitVec).multiplyScalar((MID_WIDTH / 2) * -1)
+	  );
+	  const tc = new Vector3().addVectors(
+	    center,
+	    new Vector3().copy(tipBendUnitVec).multiplyScalar(TIP_OFFSET)
+	  );
 
 	  tl.y += height / 2;
 	  tr.y += height / 2;
@@ -49579,7 +49590,7 @@
 	    { pos: br.toArray(), uv: uv, color: black },
 	    { pos: tr.toArray(), uv: uv, color: gray },
 	    { pos: tl.toArray(), uv: uv, color: gray },
-	    { pos: tc.toArray(), uv: uv, color: white }
+	    { pos: tc.toArray(), uv: uv, color: white },
 	  ];
 
 	  const indices = [
@@ -49591,10 +49602,10 @@
 	    vArrOffset + 3,
 	    vArrOffset + 3,
 	    vArrOffset,
-	    vArrOffset + 2
+	    vArrOffset + 2,
 	  ];
 
 	  return { verts, indices };
 	}
 
-}());
+})();
